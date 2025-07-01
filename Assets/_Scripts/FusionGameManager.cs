@@ -6,6 +6,7 @@ using Fusion;
 using Fusion.Sockets;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using System.Threading.Tasks;
 
 // Network input structure for player movement
 public struct NetworkInputData : INetworkInput
@@ -39,7 +40,7 @@ public class FusionGameManager : MonoBehaviour, INetworkRunnerCallbacks
             GameMode = GameMode.Shared,
             SessionName = roomName,
             Scene = SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex),
-            SceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>()
+            SceneManager = null // Don't use scene manager to avoid camera destruction
         });
 
         if (result.Ok)
@@ -66,7 +67,7 @@ public class FusionGameManager : MonoBehaviour, INetworkRunnerCallbacks
             GameMode = GameMode.Shared,
             SessionName = roomName,
             Scene = SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex),
-            SceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>()
+            SceneManager = null // Don't use scene manager to avoid camera destruction
         });
 
         if (result.Ok)
@@ -119,6 +120,12 @@ public class FusionGameManager : MonoBehaviour, INetworkRunnerCallbacks
     { 
         Debug.Log($"Network shutdown: {shutdownReason}");
         
+        // Notify UI first, before any cleanup
+        if (_uiManager != null && _uiManager.gameObject != null)
+        {
+            _uiManager.OnSessionEnded($"Session ended: {shutdownReason}");
+        }
+        
         // Clean up all spawned players regardless of shutdown reason
         CleanupAllPlayers();
         
@@ -128,6 +135,12 @@ public class FusionGameManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) 
     { 
         Debug.Log($"Disconnected from server: {reason}");
+        
+        // Notify UI first if it still exists
+        if (_uiManager != null && _uiManager.gameObject != null)
+        {
+            _uiManager.OnSessionEnded($"Disconnected from server: {reason}");
+        }
         
         // If we disconnect, clean up our local player references
         CleanupAllPlayers();
@@ -180,15 +193,165 @@ public class FusionGameManager : MonoBehaviour, INetworkRunnerCallbacks
     
     private void CleanupAllPlayers()
     {
-        foreach (var kvp in _spawnedPlayers.ToArray())
+        if (_spawnedPlayers != null)
         {
-            if (kvp.Value != null)
+            foreach (var kvp in _spawnedPlayers.ToArray())
             {
-                Destroy(kvp.Value.gameObject);
+                if (kvp.Value != null)
+                {
+                    Destroy(kvp.Value.gameObject);
+                }
+            }
+            _spawnedPlayers.Clear();
+        }
+    }
+    
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_ForceDisconnect()
+    {
+        Debug.Log("Received RPC_ForceDisconnect → Disconnecting self");
+        FindObjectOfType<FusionGameManager>()?.DisconnectSelf();
+    }
+
+
+    public async void QuitSession()
+    {
+        if (_runner != null)
+        {
+            Debug.Log("Ending session...");
+
+            // 🟢 Step 1: Broadcast to all peers to disconnect (via RPC)
+            foreach (var kvp in _spawnedPlayers)
+        {
+            if (kvp.Key == _runner.LocalPlayer && kvp.Value != null)
+            {
+                // Try to get PlayerCubeController and call the RPC on it
+                if (kvp.Value.TryGetBehaviour(out PlayerCubeController controller))
+                {
+                    // Call the RPC method on the FusionGameManager instead of the controller
+                    RPC_ForceDisconnect();
+                    Debug.Log("Sent RPC_ForceDisconnect to all players");
+                }
+                else
+                {
+                    Debug.LogWarning("Player prefab does not have PlayerCubeController or was not set up correctly for RPC.");
+                }
+                break;
             }
         }
-        _spawnedPlayers.Clear();
+
+
+            // Small delay to let RPC propagate
+            await Task.Delay(300);
+
+            // 🟡 Step 2: Protect the main camera from being destroyed
+            Camera mainCamera = Camera.main;
+            bool wasMainCameraDontDestroy = false;
+            if (mainCamera != null)
+            {
+                if (mainCamera.gameObject.scene.name == "DontDestroyOnLoad")
+                {
+                    wasMainCameraDontDestroy = true;
+                }
+                else
+                {
+                    DontDestroyOnLoad(mainCamera.gameObject);
+                    Debug.Log("Protected main camera during shutdown");
+                }
+            }
+
+            // 🟣 Step 3: Inform UI
+            _uiManager?.OnSessionEnded("Session ended");
+
+            try
+            {
+                // Step 4: Shutdown runner
+                _runner.RemoveCallbacks(this);
+                await _runner.Shutdown();
+
+                if (_runner != null && _runner.gameObject != null)
+                    Destroy(_runner.gameObject);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"Exception during runner shutdown: {ex.Message}");
+            }
+
+            _runner = null;
+
+            // Step 5: Clean up players
+            CleanupAllPlayers();
+
+            // 🔵 Step 6: Restore camera back to scene
+            if (mainCamera != null && !wasMainCameraDontDestroy)
+            {
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(mainCamera.gameObject, UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+                Debug.Log("Restored main camera to scene after shutdown");
+            }
+        }
     }
+
+
+    /// <summary>
+    /// Disconnects only the local player from the session, leaving other players connected
+    /// </summary>
+  public void DisconnectSelf()
+{
+    if (_runner != null)
+    {
+        Debug.Log("Disconnecting local player from session...");
+        
+        // Protect the main camera during disconnect
+        Camera mainCamera = Camera.main;
+        bool wasMainCameraDontDestroy = false;
+        if (mainCamera != null)
+        {
+            // Check if camera is already DontDestroyOnLoad
+            if (mainCamera.gameObject.scene.name == "DontDestroyOnLoad")
+            {
+                wasMainCameraDontDestroy = true;
+            }
+            else
+            {
+                DontDestroyOnLoad(mainCamera.gameObject);
+                Debug.Log("Protected main camera during disconnect");
+            }
+        }
+        
+        // Notify UI first, before any cleanup
+        if (_uiManager != null)
+        {
+            _uiManager.OnSessionEnded("Disconnected from session");
+        }
+        
+        try
+        {
+            _runner.RemoveCallbacks(this);
+            
+            // In Shared mode, shutdown the runner to disconnect the local player
+            _ = _runner.Shutdown();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"Exception during disconnect: {ex.Message}");
+        }
+
+        CleanupAllPlayers();
+
+        _runner = null;
+
+        // Restore camera to scene if we protected it
+        if (mainCamera != null && !wasMainCameraDontDestroy)
+        {
+            UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(mainCamera.gameObject, UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+            Debug.Log("Restored main camera to scene after disconnect");
+        }
+
+        Debug.Log("Local player disconnected successfully");
+    }
+}
+
     
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
