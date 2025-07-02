@@ -1,167 +1,214 @@
-using System.Collections;
-using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
+using Fusion;
+using Fusion.Sockets;
+using System.Collections.Generic;
+using UnityEngine.SceneManagement;
 
 public class UIManager : MonoBehaviour
 {
-    [Header("UI References")]
-    public GameObject gameplayPanel;
-    public TMP_InputField createRoomInput;
-    public TMP_InputField joinRoomInput;
-    public TextMeshProUGUI statusText;
-    public Button quitSessionButton; // Only visible to host
-
-    private FusionGameManager fusionGameManager;
-
+    [Header("UI Panels")]
+    [SerializeField] private GameObject menuPanel;
+    [SerializeField] private GameObject gamePanel;
+    
+    [Header("Menu UI Elements")]
+    [SerializeField] private Button createLobbyButton;
+    [SerializeField] private Button joinLobbyButton;
+    [SerializeField] private TMP_InputField roomNameInput;
+    [SerializeField] private TMP_Text statusText;
+    
+    [Header("Game UI Elements")]
+    [SerializeField] private Button leaveGameButton;
+    [SerializeField] private Button endSessionButton;
+    
+    [Header("Network Settings")]
+    [SerializeField] private NetWorkRunnerHandler networkHandler;
+    
+    private bool isHost = false;
+    private string currentRoomName = "";
+    private int currentPlayerCount = 0;
+    
     void Start()
     {
-        fusionGameManager = FindObjectOfType<FusionGameManager>();
+        SetupUI();
+        ShowMenuPanel();
+        UpdateStatusText("Ready to connect");
+    }
+    
+    void SetupUI()
+    {
+        // Setup button listeners
+        if (createLobbyButton != null)
+            createLobbyButton.onClick.AddListener(CreateLobby);
+            
+        if (joinLobbyButton != null)
+            joinLobbyButton.onClick.AddListener(JoinLobby);
+            
+        if (leaveGameButton != null)
+            leaveGameButton.onClick.AddListener(LeaveGame);
+            
+        if (endSessionButton != null)
+            endSessionButton.onClick.AddListener(EndSession);
+            
+        // Set default room name
+        if (roomNameInput != null)
+            roomNameInput.text = "TestRoom";
+    }
+    
+    public void CreateLobby()
+    {
+        string roomName = roomNameInput != null ? roomNameInput.text : "TestRoom";
         
-        // Initially hide the quit session button
-        if (quitSessionButton != null)
-            quitSessionButton.gameObject.SetActive(false);
-    }
-
-    public void OnCreateRoomClicked()
-    {
-        string roomName = createRoomInput.text;
         if (string.IsNullOrEmpty(roomName))
         {
-            createRoomInput.text = roomName;
-        }
-
-        UpdateStatus("Creating room: " + roomName);
-        Debug.Log("Creating room: " + roomName);
-        fusionGameManager.CreateRoom(roomName);
-        gameplayPanel.SetActive(false);
-    }
-
-    public void OnJoinRoomClicked()
-    {
-        string roomName = joinRoomInput.text;
-        if (string.IsNullOrEmpty(roomName))
-        {
-            UpdateStatus("Please enter a room name to join");
-            Debug.Log("Please enter a room name to join");
+            UpdateStatusText("Please enter a room name");
             return;
         }
-
-        UpdateStatus("Joining room: " + roomName);
-        Debug.Log("Joining room: " + roomName);
-        fusionGameManager.JoinRoom(roomName);
-        gameplayPanel.SetActive(false);
+        
+        currentRoomName = roomName;
+        isHost = true;
+        
+        UpdateStatusText("Creating lobby...");
+        networkHandler.StartAsHost(roomName, OnNetworkStarted);
     }
-
-    public void UpdateStatus(string message)
+    
+    public void JoinLobby()
     {
-        if (statusText != null && statusText.gameObject != null)
-            statusText.text = message;
-    }
-
-    public void OnGameConnected(bool isHost)
-    {
-        if (isHost)
+        string roomName = roomNameInput != null ? roomNameInput.text : "TestRoom";
+        
+        if (string.IsNullOrEmpty(roomName))
         {
-            UpdateStatus("Connected as Host");
-            // Show quit session button only for host
-            if (quitSessionButton != null)
-                quitSessionButton.gameObject.SetActive(true);
+            UpdateStatusText("Please enter a room name");
+            return;
+        }
+        
+        currentRoomName = roomName;
+        isHost = false;
+        
+        UpdateStatusText("Joining lobby...");
+        networkHandler.StartAsClient(roomName, OnNetworkStarted);
+    }
+    
+    public void LeaveGame()
+    {
+        UpdateStatusText("Leaving game...");
+        
+        // Only local player leaves - destroy local player and disconnect
+        networkHandler.LeaveGame();
+        
+        isHost = false;
+        currentRoomName = "";
+        currentPlayerCount = 0;
+        
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        ShowMenuPanel();
+        UpdateStatusText("Left the game");
+    }
+    
+    public void EndSession()
+    {
+        if (!isHost)
+        {
+            UpdateStatusText("Only host can end session");
+            return;
+        }
+        
+        UpdateStatusText("Ending session...");
+        
+        // Host ends session for everyone - removes all players and shuts down
+        networkHandler.EndSession();
+        
+        isHost = false;
+        currentRoomName = "";
+        currentPlayerCount = 0;
+        
+        ShowMenuPanel();
+        UpdateStatusText("Session ended");
+    }
+    
+    private void OnNetworkStarted(bool success, string message)
+    {
+        if (success)
+        {
+            ShowGamePanel();
+            string roleText = isHost ? "Host" : "Client";
+            UpdateStatusText($"Connected as {roleText} to {currentRoomName}");
         }
         else
         {
-            UpdateStatus("Connected as Client");
-            // Hide quit session button for clients
-            if (quitSessionButton != null)
-                quitSessionButton.gameObject.SetActive(false);
+            UpdateStatusText($"Failed to connect: {message}");
         }
-        gameplayPanel.SetActive(false);
     }
-
-    /// <summary>
-    /// Quits the current session, disconnecting all players and cleaning up the network state
-    /// </summary>
-    public void QuitSession()
+    
+    public void OnPlayerCountChanged(int playerCount)
     {
-        UpdateStatus("Quitting session...");
-        Debug.Log("Quitting session initiated by user");
-        
-        if (fusionGameManager != null)
-        {
-            fusionGameManager.QuitSession();
-        }
-        
-        // Hide quit session button
-        if (quitSessionButton != null)
-            quitSessionButton.gameObject.SetActive(false);
-        
-        // Reset UI to allow rejoining
-        gameplayPanel.SetActive(true);
-        UpdateStatus("Session ended. You can create or join a new room.");
-        
-        // Clear input fields
-        if (createRoomInput != null)
-            createRoomInput.text = "";
-        if (joinRoomInput != null)
-            joinRoomInput.text = "";
+        currentPlayerCount = playerCount;
+        string roleText = isHost ? "Host" : "Client";
+        UpdateStatusText($"Connected as {roleText} | Players: {playerCount} | Room: {currentRoomName}");
     }
-
-    /// <summary>
-    /// Disconnects only the local player from the session, leaving other players connected
-    /// </summary>
-    public void DisconnectSelf()
+    
+    private void ShowMenuPanel()
     {
-        UpdateStatus("Disconnecting...");
-        Debug.Log("Disconnecting local player from session");
+        if (menuPanel != null) menuPanel.SetActive(true);
+        if (gamePanel != null) gamePanel.SetActive(false);
         
-        if (fusionGameManager != null)
-        {
-            fusionGameManager.DisconnectSelf();
-        }
-        
-        // Hide quit session button
-        if (quitSessionButton != null)
-            quitSessionButton.gameObject.SetActive(false);
-        
-        // Reset UI to allow rejoining
-        gameplayPanel.SetActive(true);
-        UpdateStatus("Disconnected. You can create or join a new room.");
-        
-        // Clear input fields
-        if (createRoomInput != null)
-            createRoomInput.text = "";
-        if (joinRoomInput != null)
-            joinRoomInput.text = "";
+        // Enable/disable buttons based on state
+        if (createLobbyButton != null) createLobbyButton.interactable = true;
+        if (joinLobbyButton != null) joinLobbyButton.interactable = true;
     }
-
-    /// <summary>
-    /// Called when the session ends (for any reason) - shows gameplay panel for all players
-    /// </summary>
-    public void OnSessionEnded(string reason)
+    
+    private void ShowGamePanel()
     {
-        if (this == null || gameObject == null)
-        {
-            Debug.LogWarning("UIManager or its GameObject has been destroyed, skipping OnSessionEnded");
-            return;
-        }
+        if (menuPanel != null) menuPanel.SetActive(false);
+        if (gamePanel != null) gamePanel.SetActive(true);
         
-        Debug.Log($"Session ended: {reason}");
-        
-        // Hide quit session button
-        if (quitSessionButton != null && quitSessionButton.gameObject != null)
-            quitSessionButton.gameObject.SetActive(false);
-        
-        // Reset UI to allow rejoining
-        if (gameplayPanel != null)
-            gameplayPanel.SetActive(true);
-            
-        UpdateStatus($"Session ended: {reason}. You can create or join a new room.");
-        
-        // Clear input fields
-        if (createRoomInput != null)
-            createRoomInput.text = "";
-        if (joinRoomInput != null)
-            joinRoomInput.text = "";
+        // Show end session button only for host
+        if (endSessionButton != null) 
+            endSessionButton.gameObject.SetActive(isHost);
     }
-}
+    
+    private void UpdateStatusText(string message)
+    {
+        if (statusText != null)
+            statusText.text = message;
+        
+        Debug.Log($"Status: {message}");
+    }
+    
+    // Called when network events occur
+    public void OnPlayerJoined(PlayerRef player, int totalPlayers)
+    {
+        OnPlayerCountChanged(totalPlayers);
+    }
+    
+    public void OnPlayerLeft(PlayerRef player, int totalPlayers)
+    {
+        OnPlayerCountChanged(totalPlayers);
+    }
+    
+    public void OnNetworkError(string error)
+    {
+        UpdateStatusText($"Network Error: {error}");
+        ShowMenuPanel();
+    }
+    
+    public void OnLocalPlayerLeft()
+    {
+        // Called when only the local player has left
+        isHost = false;
+        currentRoomName = "";
+        currentPlayerCount = 0;
+        ShowMenuPanel();
+        UpdateStatusText("Left the game");
+    }
+    
+    void OnDestroy()
+    {
+        // Clean up button listeners
+        if (createLobbyButton != null) createLobbyButton.onClick.RemoveAllListeners();
+        if (joinLobbyButton != null) joinLobbyButton.onClick.RemoveAllListeners();
+        if (leaveGameButton != null) leaveGameButton.onClick.RemoveAllListeners();
+        if (endSessionButton != null) endSessionButton.onClick.RemoveAllListeners();
+    }
+} 
