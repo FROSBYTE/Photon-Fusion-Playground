@@ -16,6 +16,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Button createLobbyButton;
     [SerializeField] private Button joinLobbyButton;
     [SerializeField] private TMP_InputField roomNameInput;
+    [SerializeField] private TMP_InputField playerNameInput;
     [SerializeField] private TMP_Text statusText;
     
     [Header("Game UI Elements")]
@@ -24,6 +25,9 @@ public class UIManager : MonoBehaviour
     
     [Header("Network Settings")]
     [SerializeField] private NetWorkRunnerHandler networkHandler;
+    
+    // Static property to store the local player's name
+    public static string LocalPlayerName = "Player";
     
     private bool isHost = false;
     private string currentRoomName = "";
@@ -59,12 +63,16 @@ public class UIManager : MonoBehaviour
     public void CreateLobby()
     {
         string roomName = roomNameInput != null ? roomNameInput.text : "TestRoom";
+        string playerName = playerNameInput != null ? playerNameInput.text : "Player";
         
         if (string.IsNullOrEmpty(roomName))
         {
             UpdateStatusText("Please enter a room name");
             return;
         }
+        
+        // Store the player name for use when spawning
+        LocalPlayerName = string.IsNullOrEmpty(playerName) ? "Host" : playerName;
         
         currentRoomName = roomName;
         isHost = true;
@@ -76,12 +84,16 @@ public class UIManager : MonoBehaviour
     public void JoinLobby()
     {
         string roomName = roomNameInput != null ? roomNameInput.text : "TestRoom";
+        string playerName = playerNameInput != null ? playerNameInput.text : "Player";
         
         if (string.IsNullOrEmpty(roomName))
         {
             UpdateStatusText("Please enter a room name");
             return;
         }
+        
+        // Store the player name for use when spawning
+        LocalPlayerName = string.IsNullOrEmpty(playerName) ? "Client" : playerName;
         
         currentRoomName = roomName;
         isHost = false;
