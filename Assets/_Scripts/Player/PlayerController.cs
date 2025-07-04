@@ -2,16 +2,8 @@ using Fusion;
 using UnityEngine;
 using TMPro;
 
-public struct NetworkInputData : INetworkInput
-{
-    public Vector3 movementInput;
-}
-
 public class PlayerController : NetworkBehaviour
 {
-    [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 5f;
-    
     [Header("Combat Settings")]
     [SerializeField] private float damageCooldown = 2f;
 
@@ -45,19 +37,8 @@ public class PlayerController : NetworkBehaviour
 
     public override void FixedUpdateNetwork()
     {
-        // Get input from the client that has input authority for this object
-        if (GetInput<NetworkInputData>(out var input))
-        {
-            Vector3 move = new Vector3(input.movementInput.x, 0, input.movementInput.z);
-            
-            // Apply movement directly to transform
-            // Fusion will automatically sync this via NetworkTransform or interpolation
-            if (move.magnitude > 0.01f)
-            {
-                Vector3 movement = move.normalized * moveSpeed * Runner.DeltaTime;
-                transform.position += movement;
-            }
-        }
+        // Movement is now handled by NetworkPlayer component
+        // This component focuses on health system and UI
     }
     
     private void OnHealthChanged()
@@ -107,8 +88,8 @@ public class PlayerController : NetworkBehaviour
         if (Object.HasStateAuthority && collision.gameObject.CompareTag("Player"))
         {
             if (DamageCooldownTimer.ExpiredOrNotRunning(Runner))
-            {
-                TakeDamage(10);
+        {
+            TakeDamage(10);
                 Debug.Log($"Player {PlayerName} hit another player - damage applied");
                 
                 DamageCooldownTimer = TickTimer.CreateFromSeconds(Runner, damageCooldown);
