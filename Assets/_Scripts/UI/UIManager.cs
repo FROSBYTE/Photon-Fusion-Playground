@@ -8,6 +8,8 @@ using UnityEngine.SceneManagement;
 
 public class UIManager : MonoBehaviour
 {
+    public static UIManager Instance;
+
     [Header("UI Panels")]
     [SerializeField] private GameObject menuPanel;
     [SerializeField] private GameObject gamePanel;
@@ -18,6 +20,9 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TMP_InputField roomNameInput;
     [SerializeField] private TMP_InputField playerNameInput;
     [SerializeField] private TMP_Text statusText;
+    public GameObject connectionPanel;
+
+   
     
     [Header("Game UI Elements")]
     [SerializeField] private Button leaveGameButton;
@@ -26,13 +31,17 @@ public class UIManager : MonoBehaviour
     [Header("Network Settings")]
     [SerializeField] private NetWorkRunnerHandler networkHandler;
     
-    // Static property to store the local player's name
-    public static string LocalPlayerName = "Player";
-    
+    public static string LocalPlayerName = "Player";    
+
     private bool isHost = false;
     private string currentRoomName = "";
     private int currentPlayerCount = 0;
     
+    void Awake()
+    {
+        Instance = this;
+    }
+
     void Start()
     {
         SetupUI();
@@ -42,7 +51,6 @@ public class UIManager : MonoBehaviour
     
     void SetupUI()
     {
-        // Setup button listeners
         if (createLobbyButton != null)
             createLobbyButton.onClick.AddListener(CreateLobby);
             
@@ -63,7 +71,7 @@ public class UIManager : MonoBehaviour
     public void CreateLobby()
     {
         string roomName = roomNameInput != null ? roomNameInput.text : "TestRoom";
-        string playerName = playerNameInput != null ? playerNameInput.text : "Player";
+        string playerName = playerNameInput != null ? playerNameInput.text : "Player" + Random.Range(1, 5);
         
         if (string.IsNullOrEmpty(roomName))
         {
@@ -78,6 +86,7 @@ public class UIManager : MonoBehaviour
         isHost = true;
         
         UpdateStatusText("Creating lobby...");
+        connectionPanel.SetActive(true);
         networkHandler.StartAsHost(roomName, OnNetworkStarted);
     }
     
@@ -99,6 +108,7 @@ public class UIManager : MonoBehaviour
         isHost = false;
         
         UpdateStatusText("Joining lobby...");
+        connectionPanel.SetActive(true);
         networkHandler.StartAsClient(roomName, OnNetworkStarted);
     }
     
@@ -186,6 +196,7 @@ public class UIManager : MonoBehaviour
             statusText.text = message;
         
         Debug.Log($"Status: {message}");
+
     }
     
     // Called when network events occur

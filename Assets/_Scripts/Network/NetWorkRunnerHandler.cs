@@ -7,6 +7,7 @@ using System.Linq;
 using System;
 using Fusion.Sockets;
 using System.Threading.Tasks;
+using TMPro;
 
 public class NetWorkRunnerHandler : MonoBehaviour
 {
@@ -30,11 +31,13 @@ public class NetWorkRunnerHandler : MonoBehaviour
         try
         {
             await StartNetwork(GameMode.Host, roomName);
+            UIManager.Instance.connectionPanel.SetActive(false);
         }
         catch (Exception e)
         {
             Debug.LogError($"Failed to start as host: {e.Message}");
             OnNetworkStarted?.Invoke(false, e.Message);
+            //debugText.text = "Failed to start as host: " + e.Message;
         }
     }
     
@@ -45,12 +48,15 @@ public class NetWorkRunnerHandler : MonoBehaviour
         try
         {
             await StartNetwork(GameMode.Client, roomName);
+            UIManager.Instance.connectionPanel.SetActive(false);
         }
         catch (Exception e)
         {
             Debug.LogError($"Failed to start as client: {e.Message}");
             OnNetworkStarted?.Invoke(false, e.Message);
+            //debugText.text = "Failed to start as client: " + e.Message;
         }
+       
     }
     
     private async Task StartNetwork(GameMode gameMode, string sessionName)
@@ -86,8 +92,10 @@ public class NetWorkRunnerHandler : MonoBehaviour
         }
         else
         {
+            
             Debug.LogError($"Failed to start network: {result.ShutdownReason}");
             OnNetworkStarted?.Invoke(false, result.ShutdownReason.ToString());
+           
             
             // Cleanup on failure
             if (networkRunner != null)
