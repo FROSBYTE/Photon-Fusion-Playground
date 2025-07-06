@@ -20,7 +20,6 @@ public class NetWorkRunnerHandler : MonoBehaviour
     
     void Start()
     {
-        // Don't auto-start network anymore - let UI control it
         Debug.Log("NetworkRunnerHandler ready - waiting for UI commands");
     }
     
@@ -37,7 +36,6 @@ public class NetWorkRunnerHandler : MonoBehaviour
         {
             Debug.LogError($"Failed to start as host: {e.Message}");
             OnNetworkStarted?.Invoke(false, e.Message);
-            //debugText.text = "Failed to start as host: " + e.Message;
         }
     }
     
